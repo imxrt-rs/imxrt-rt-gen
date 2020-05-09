@@ -379,12 +379,11 @@ impl<W: Word> LinkerScript<W> {
                 return Err(LinkerError::MissingSection(name));
             }
         }
-        let link = generate::link::render(&self)?;
+        generate::link::render(&self, link_x)?;
+        Ok(())
         //let reset = generate::reset::render(&self)?;
         //let mut reset_rs = File::create("reset.rs")?;
-        link_x.write_all(&link)?;
         //reset_rs.write_all(&reset)?;
-        Ok(())
     }
 }
 

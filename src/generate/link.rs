@@ -2,7 +2,10 @@ use crate::{LinkerScript, Section, SectionSize, Word};
 use std::io::{Error, Write};
 
 /// render a linker sized section
-fn render_linker_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Result<(), Error> {
+fn render_linker_section<W: Word, Wr: Write>(
+    out: &mut Wr,
+    section: &Section<W>,
+) -> Result<(), Error> {
     writeln!(out, "\t.{} :", section.name)?;
     writeln!(out, "\t{{")?;
     writeln!(out, "\t\t. = ALIGN({});", std::mem::align_of::<W>())?;
@@ -43,7 +46,10 @@ fn render_linker_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Re
 }
 
 /// render a heap section
-fn render_heap_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Result<(), Error> {
+fn render_heap_section<W: Word, Wr: Write>(
+    out: &mut Wr,
+    section: &Section<W>,
+) -> Result<(), Error> {
     writeln!(out, "\t.{} :", section.name)?;
     writeln!(out, "\t{{")?;
     writeln!(
@@ -65,7 +71,10 @@ fn render_heap_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Resu
 }
 
 /// render a heap section
-fn render_stack_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Result<(), Error> {
+fn render_stack_section<W: Word, Wr: Write>(
+    out: &mut Wr,
+    section: &Section<W>,
+) -> Result<(), Error> {
     writeln!(out, "\t.{} :", section.name)?;
     writeln!(out, "\t{{")?;
     writeln!(
@@ -87,8 +96,8 @@ fn render_stack_section<W: Word>(out: &mut Vec<u8>, section: &Section<W>) -> Res
 }
 
 /// render a heap section
-fn render_fixed_section<W: Word>(
-    out: &mut Vec<u8>,
+fn render_fixed_section<W: Word, Wr: Write>(
+    out: &mut Wr,
     section: &Section<W>,
     size: W,
 ) -> Result<(), Error> {
@@ -108,12 +117,10 @@ fn render_fixed_section<W: Word>(
 }
 
 /// Generate a linker script from a LinkerScript
-pub fn render<W: Word>(ls: &LinkerScript<W>) -> Result<Vec<u8>, Error> {
-    let mut out = Vec::new();
-
+pub fn render<W: Word, Wr: Write>(ls: &LinkerScript<W>, out: &mut Wr) -> Result<(), Error> {
     // file header
     writeln!(
-        &mut out,
+        out,
         "INCLUDE device.x
 ENTRY(Reset);
 EXTERN(__RESET_VECTOR); /* depends on the `Reset` symbol */
@@ -145,34 +152,34 @@ EXTERN(__INTERRUPTS); /* `static` variable similar to `__EXCEPTIONS` */
 "
     )?;
 
-    writeln!(&mut out, "MEMORY {{")?;
+    writeln!(out, "MEMORY {{")?;
     for region in ls.regions.values() {
         writeln!(
-            &mut out,
+            out,
             "\t{} : ORIGIN = {:#X}, LENGTH = {:#X}",
             region.name, region.origin, region.size
         )?;
     }
-    writeln!(&mut out, "}}")?;
+    writeln!(out, "}}")?;
 
-    writeln!(&mut out, "SECTIONS {{")?;
+    writeln!(out, "SECTIONS {{")?;
     for region in ls.regions.values() {
-        writeln!(&mut out, "\t__{}_origin = {};", region.name, region.origin)?;
-        writeln!(&mut out, "\t__{}_size = {};", region.name, region.size)?;
-        writeln!(&mut out, "\t__{}_used = 0;", region.name)?;
+        writeln!(out, "\t__{}_origin = {};", region.name, region.origin)?;
+        writeln!(out, "\t__{}_size = {};", region.name, region.size)?;
+        writeln!(out, "\t__{}_used = 0;", region.name)?;
     }
     let mut sorted_sections: Vec<Section<W>> = ls.sections.values().cloned().collect();
     sorted_sections.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
     for section in sorted_sections.iter() {
         match section.size {
-            SectionSize::Linker => render_linker_section(&mut out, section)?,
-            SectionSize::Heap => render_heap_section(&mut out, section)?,
-            SectionSize::Stack => render_stack_section(&mut out, section)?,
-            SectionSize::Fixed(size) => render_fixed_section(&mut out, section, size)?,
+            SectionSize::Linker => render_linker_section(out, section)?,
+            SectionSize::Heap => render_heap_section(out, section)?,
+            SectionSize::Stack => render_stack_section(out, section)?,
+            SectionSize::Fixed(size) => render_fixed_section(out, section, size)?,
         }
     }
 
-    writeln!(&mut out, "}}")?;
+    writeln!(out, "}}")?;
 
     //TODO assign a symbol describing the size of each region
     //and section. The section sizes are needed for double linking
@@ -180,5 +187,5 @@ EXTERN(__INTERRUPTS); /* `static` variable similar to `__EXCEPTIONS` */
     //The region sizes are needed in some cases for flash configuration
     //tables (ex: external flash based devices).
 
-    Ok(out)
+    Ok(())
 }
