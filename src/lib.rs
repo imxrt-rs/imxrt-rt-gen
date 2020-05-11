@@ -362,21 +362,28 @@ impl<W: Word> LinkerScript<W> {
 
     /// Generate a linker script and matching reset module
     /// which correctly initializes sections.
+    ///
+    /// The function places a linker script file, called `link.x`, in
+    /// the current working directory.
     pub fn generate(self) -> Result<()> {
-        const REQ_SEC_NAMES: [&str; 5] = ["stack", "vector_table", "text", "data", "bss"];
+        let mut link_x = File::create("link.x")?;
+        self.write(&mut link_x)
+    }
+
+    /// Write the linker script into the writer, `link_x`
+    pub fn write<Wr: Write>(self, link_x: &mut Wr) -> Result<()> {
+        const REQ_SEC_NAMES: [&str; 6] = ["stack", "vector_table", "text", "data", "rodata", "bss"];
         for req_sec_name in REQ_SEC_NAMES.iter() {
             let name = String::from(*req_sec_name);
             if !self.sections.contains_key(&name) {
                 return Err(LinkerError::MissingSection(name));
             }
         }
-        let link = generate::link::render(&self)?;
-        //let reset = generate::reset::render(&self)?;
-        let mut link_x = File::create("link.x")?;
-        //let mut reset_rs = File::create("reset.rs")?;
-        link_x.write_all(&link)?;
-        //reset_rs.write_all(&reset)?;
+        generate::link::render(&self, link_x)?;
         Ok(())
+        //let reset = generate::reset::render(&self)?;
+        //let mut reset_rs = File::create("reset.rs")?;
+        //reset_rs.write_all(&reset)?;
     }
 }
 
@@ -397,5 +404,95 @@ mod tests {
         ls.rodata(false, flash.clone(), None).unwrap();
         ls.bss(false, flash.clone(), Some(ram.clone())).unwrap();
         ls.generate().unwrap();
+    }
+
+    //
+    // The 'rejects_*' tests show that we reject linker scripts that are missing
+    // our required sections.
+    //
+
+    #[derive(PartialEq, Eq)]
+    enum Required {
+        Stack,
+        VectorTable,
+        Text,
+        Data,
+        ROData,
+        Bss,
+    }
+
+    impl ToString for Required {
+        fn to_string(&self) -> String {
+            ToString::to_string(match self {
+                Required::Stack => "stack",
+                Required::VectorTable => "vector_table",
+                Required::Text => "text",
+                Required::Data => "data",
+                Required::ROData => "rodata",
+                Required::Bss => "bss",
+            })
+        }
+    }
+
+    fn reject_missing(required: Required) {
+        let mut ls = LinkerScript::<u32>::new();
+        let flash = ls.region(FLASH, 0x0, 512).unwrap();
+        let ram = ls.region(RAM, 0x20000000, 128).unwrap();
+        if Required::Stack != required {
+            ls.stack(ram.clone()).unwrap();
+        }
+        if Required::VectorTable != required {
+            ls.vector_table(flash.clone(), Some(ram.clone())).unwrap();
+        }
+        if Required::Text != required {
+            ls.text(flash.clone(), Some(ram.clone())).unwrap();
+        }
+        if Required::Data != required {
+            ls.data(false, flash.clone(), Some(ram.clone())).unwrap();
+        }
+        if Required::ROData != required {
+            ls.rodata(false, flash.clone(), None).unwrap();
+        }
+        if Required::Bss != required {
+            ls.bss(false, flash.clone(), Some(ram.clone())).unwrap();
+        }
+        match ls.generate() {
+            Err(LinkerError::MissingSection(section)) if section == required.to_string() => {}
+            result => panic!(
+                "Expected missing {}, but got {:?}",
+                required.to_string(),
+                result
+            ),
+        };
+    }
+
+    #[test]
+    fn rejects_missing_vector_table() {
+        reject_missing(Required::VectorTable);
+    }
+
+    #[test]
+    fn rejects_missing_stack() {
+        reject_missing(Required::Stack);
+    }
+
+    #[test]
+    fn rejects_missing_text() {
+        reject_missing(Required::Text);
+    }
+
+    #[test]
+    fn rejects_missing_data() {
+        reject_missing(Required::Data);
+    }
+
+    #[test]
+    fn rejects_missing_rodata() {
+        reject_missing(Required::ROData);
+    }
+
+    #[test]
+    fn rejects_missing_bss() {
+        reject_missing(Required::Bss);
     }
 }
